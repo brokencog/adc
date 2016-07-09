@@ -280,7 +280,7 @@ void loop()
 
      write_data( adc_values );
 
-     myMotor->step( 100, FORWARD, SINGLE );
+     myMotor->step( adc_values[stepper_value], FORWARD, SINGLE );
 
      digitalWrite( ledPin, LOW );
 
