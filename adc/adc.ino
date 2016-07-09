@@ -55,7 +55,7 @@ float adc_values[ANALOG_SOURCES] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
 // Stepper motor
 Adafruit_MotorShield AFMS = Adafruit_MotorShield();
-Adafruit_StepperMotor *myMotor = AFMS.getStepper( 200, 4 );
+Adafruit_StepperMotor *myMotor = AFMS.getStepper( 200, 2 );
 
 //
 //
@@ -87,8 +87,9 @@ void setup()
      Serial.print( contents );
 
      // Motor
-     myMotor->setSpeed( 60 );
-     Serial.println( "Setup configured motor to 60rpm.");
+     AFMS.begin();    
+     myMotor->setSpeed( 10 );
+     Serial.println( "Setup configured motor to 10rpm.");
 
 }
 
@@ -279,7 +280,7 @@ void loop()
 
      write_data( adc_values );
 
-     myMotor->step( 10, FORWARD, SINGLE );
+     myMotor->step( 100, FORWARD, SINGLE );
 
      digitalWrite( ledPin, LOW );
 
