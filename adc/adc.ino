@@ -49,7 +49,7 @@ char contents[125];           //This will be a data buffer for writing contents 
 #define stepper_value 8
 #define ANALOG_SOURCES 9
      
-char *adc_labels[ANALOG_SOURCES] = { "MAP", "IN", "OUT", "NG", "PSI", "EGT", "TT", "Flow", "Stepper" };
+const char *adc_labels[ANALOG_SOURCES] = { "MAP", "IN", "OUT", "NG", "PSI", "EGT", "TT", "Flow", "Stepper" };
 float adc_values[ANALOG_SOURCES] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 
 
