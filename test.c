@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 
+#define stepsPerRevolution 300
 
 int psi_array[] = { 30, 40, 50, 60, 70, 80, 100, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700 };
 #define PSI_STEPS ( sizeof(psi_array) / sizeof(int) )
@@ -36,7 +37,7 @@ void printtable( int index[], int header[], int array[PSI_STEPS][MAP_STEPS], int
 {
      int count=15, i, j;
 
-     printf( "\t\t" );
+     printf( "\n\t\t" );
      for( i=0; i<width; i++ ) {
 	  printf( "[%d]%d\t", i, header[i] );
 	  count += 8;
@@ -61,7 +62,7 @@ void printtable( int index[], int header[], int array[PSI_STEPS][MAP_STEPS], int
 }
 
 
-int bsearch_array( int key, int array[], int length )
+int bsearch_array( int key, const int array[], int length )
 {
      int first = 0,
 	  last = length - 1,
@@ -69,11 +70,13 @@ int bsearch_array( int key, int array[], int length )
 
      if( (key < array[first]) || (key > array[last]) )
 	  return -1;
-     
+
      while( first <= last ) {
 	  if( key > array[mid] )
-	       first = mid + 1;
+	       first = mid + 1;	
 	  else if( (key >= array[mid]) && (key < array[mid+1]) )
+	       return mid;
+	  else if( key == array[mid] )
 	       return mid;
 	  else
 	       last = mid - 1;
@@ -104,7 +107,7 @@ int calc_stepper_value( float tankpsi, float enginemap )
      map_index = bsearch_array( round(enginemap), map_array, MAP_STEPS );
 
      if( psi_index == -1 || map_index == -1 )
-	  return 0;
+	  return stepsPerRevolution;
      else
 	  return linear( enginemap,
 			 (float)stepper_motor_values[psi_index][map_index], (float)map_array[map_index],
@@ -117,14 +120,23 @@ int calc_stepper_value( float tankpsi, float enginemap )
 int main( int argc, char *argv[] )
 {
      float xin, yin;
+     int tablevalue, steps, previous;
 
-     printf( "\n");
-     printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );
+     if( argc < 4 ) {
+	  printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );
+	  printf( "usage: %s MAP PSI Prev_Stepper\n", argv[0] );
+	  exit( 0 );
+     }
      
      xin = atof( argv[1] );
      yin = atof( argv[2] );
+     previous = atol( argv[3] );
 
-     printf( "Stepper: %d.\n", calc_stepper_value( xin, yin ) );
+     tablevalue = calc_stepper_value( xin, yin );
+     steps = trunc( previous - ( stepsPerRevolution - tablevalue ) );
 
-     return 0;
+     printf( "Table value: %d.  myStepper.step(%d).\n", tablevalue, steps );
+
+     return steps;
+
 }
