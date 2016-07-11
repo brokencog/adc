@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 #define stepsPerRevolution 300
 
@@ -12,26 +13,25 @@ int map_array[] = { 110, 115, 120, 125, 130, 135, 140, 145, 150 };
 #define MAP_STEPS ( sizeof(map_array) / sizeof(int) )
 
 int stepper_motor_values[PSI_STEPS][MAP_STEPS] = {
-     { 132, 156, 180, 222, 234, 246, 0, 0, 0 },
-     { 132, 156, 180, 222, 234, 246, 0, 0, 0 },
-     { 132, 156, 180, 222, 234, 246, 180, 192, 210 },
-     { 135, 159, 184, 221, 236, 244, 267, 290, 313 },
-     { 138, 162, 186, 222, 234, 246, 264, 288, 312 },
-     { 132, 156, 181, 217, 232, 240, 264, 287, 309 },
-     { 133, 157, 182, 218, 233, 241, 264, 287, 309 },
-     { 119, 141, 164, 198, 211, 219, 240, 261, 282 },
-     { 76, 98, 120, 152, 165, 172, 192, 213, 233 },
-     { 67, 89, 112, 145, 159, 166, 187, 208, 229 },
-     { 80, 102, 125, 158, 171, 178, 199, 220, 241 },
-     { 86, 107, 129, 162, 175, 182, 202, 223, 243 },
-     { 89, 112, 135, 168, 182, 189, 211, 232, 253 },
-     { 84, 102, 126, 156, 168, 174, 198, 216, 234 },
-     { 72, 96, 114, 144, 156, 162, 180, 204, 222 },
-     { 60, 78, 102, 126, 138, 144, 162, 180, 198 },
-     { 42, 60, 78, 102, 114, 120, 138, 156, 174 },
-     { 18, 36, 54, 78, 84, 90, 108, 120, 138 }
+     /* { 132, 156, 180, 222, 234, 246, 0, 0, 0 }, */
+     /* { 132, 156, 180, 222, 234, 246, 0, 0, 0 }, */
+     /* { 132, 156, 180, 222, 234, 246, 180, 192, 210 }, */
+     /* { 135, 159, 184, 221, 236, 244, 267, 290, 313 }, */
+     /* { 138, 162, 186, 222, 234, 246, 264, 288, 312 }, */
+     /* { 132, 156, 181, 217, 232, 240, 264, 287, 309 }, */
+     /* { 133, 157, 182, 218, 233, 241, 264, 287, 309 }, */
+     /* { 119, 141, 164, 198, 211, 219, 240, 261, 282 }, */
+     /* { 76, 98, 120, 152, 165, 172, 192, 213, 233 }, */
+     /* { 67, 89, 112, 145, 159, 166, 187, 208, 229 }, */
+     /* { 80, 102, 125, 158, 171, 178, 199, 220, 241 }, */
+     /* { 86, 107, 129, 162, 175, 182, 202, 223, 243 }, */
+     /* { 89, 112, 135, 168, 182, 189, 211, 232, 253 }, */
+     /* { 84, 102, 126, 156, 168, 174, 198, 216, 234 }, */
+     /* { 72, 96, 114, 144, 156, 162, 180, 204, 222 }, */
+     /* { 60, 78, 102, 126, 138, 144, 162, 180, 198 }, */
+     /* { 42, 60, 78, 102, 114, 120, 138, 156, 174 }, */
+     /* { 18, 36, 54, 78, 84, 90, 108, 120, 138 } */
 };
-
 
 void printtable( int index[], int header[], int array[PSI_STEPS][MAP_STEPS], int height, int width )
 {
@@ -117,10 +117,73 @@ int calc_stepper_value( float tankpsi, float enginemap )
 }
 
 
+void read_config()
+{
+     FILE *configFile = fopen( "config", "r" );
+     char buffer[256], *delim, *temp;
+     int mapi = 0, psii = 0;
+
+     // read configuration file.
+     do {
+	  fgets( buffer, 256, configFile );
+
+	  // handle simple cases: leading comment, and { starting array
+	  if( buffer[0] == '#' || buffer[0] == '\n' ) {
+
+	  } else if( buffer[0] == '{' ) {
+
+	       // read header line of array, which is map array.
+	       fgets( buffer, 256, configFile );
+	       temp = buffer;
+
+	       // first element is 0 place holder.
+	       delim = strtok( temp, ", " ); // place holder
+	       delim = strtok( NULL, ", " ); // first value.
+	       delim = strtok( NULL, ", " ); // first value.
+	       do {
+		    map_array[mapi++] = atoi( delim );
+	       	    delim = strtok( NULL, ", " );
+	       } while( delim );
+
+	       // next is the stepper arrays.	       
+	       do {
+		    mapi = 0;
+
+		    fgets( buffer, 256, configFile );
+		    temp = buffer;
+
+		    delim = strtok( temp, ", " ); // first value is PSI array element.
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    psi_array[psii] = atoi( delim );
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    do {
+			 stepper_motor_values[psii][mapi++] = atoi( delim );
+			 //printf( "%s: %d.\n", delim, stepper_motor_values[psii][mapi-1] );
+			 delim = strtok( NULL, ", " );
+		    } while( delim );
+	       
+	       } while( psii++ < PSI_STEPS );
+
+	  } else {
+	       /* temp = buffer; */
+	       /* delim = strchr( temp++, ',' ); */
+	       /* delim[0] = '\0'; */
+	       /* printf( "Name: %s, value: %f.\n", buffer, atof( &delim[1] ) ); */
+	  }
+	       
+     } while( !feof(configFile) );
+
+     
+}
+
+
+
 int main( int argc, char *argv[] )
 {
      float xin, yin;
      int tablevalue, steps, previous;
+
+     read_config();
 
      if( argc < 4 ) {
 	  printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );

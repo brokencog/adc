@@ -26,14 +26,14 @@ D13: SD_CLK.
 
 #ifdef OSEPP_SD_SHIELD
 #include <SD.h>
-SdFile root, file;
+SdFile root, file, configFile;
 #define SD_CS_PIN 10
 
 #else  // Arduino SD shield
 #include <SPI.h>
 #include <SdFat.h>
 SdFat SD;
-File file;
+File file, configFile;
 #define SD_CS_PIN 53
 
 #endif
@@ -51,6 +51,7 @@ File file;
 #define psi_pin A4    // 5v
 #define exhaustgastemp_pin A5  // 12v
 #define tanktemp_pin A6        // 12v
+
 #define ledPin 13
 #define solenoidPin 40
 
@@ -148,6 +149,67 @@ char g_str_buffer[125];           //This will be a data buffer for writing g_str
 
 
 
+void read_config( )
+{
+     FILE *configFile = fopen( "config", "r" );
+     char buffer[256], *delim, *temp;
+     int mapi = 0, psii = 0;
+
+     // read configuration file.
+     do {
+	  fgets( buffer, 256, configFile );
+
+	  // handle simple cases: leading comment, and { starting array
+	  if( buffer[0] == '#' || buffer[0] == '\n' ) {
+
+	  } else if( buffer[0] == '{' ) {
+
+	       // read header line of array, which is map array.
+	       fgets( buffer, 256, configFile );
+	       temp = buffer;
+
+	       // first element is 0 place holder.
+	       delim = strtok( temp, ", " ); // place holder
+	       delim = strtok( NULL, ", " ); // first value.
+	       delim = strtok( NULL, ", " ); // first value.
+	       do {
+		    map_array[mapi++] = atoi( delim );
+	       	    delim = strtok( NULL, ", " );
+	       } while( delim );
+
+	       // next is the stepper arrays.	       
+	       do {
+		    mapi = 0;
+
+		    fgets( buffer, 256, configFile );
+		    temp = buffer;
+
+		    delim = strtok( temp, ", " ); // first value is PSI array element.
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    psi_array[psii] = atoi( delim );
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    do {
+			 stepper_motor_values[psii][mapi++] = atoi( delim );
+			 //printf( "%s: %d.\n", delim, stepper_motor_values[psii][mapi-1] );
+			 delim = strtok( NULL, ", " );
+		    } while( delim );
+	       
+	       } while( psii++ < PSI_STEPS );
+
+	  } else {
+	       /* temp = buffer; */
+	       /* delim = strchr( temp++, ',' ); */
+	       /* delim[0] = '\0'; */
+	       /* printf( "Name: %s, value: %f.\n", buffer, atof( &delim[1] ) ); */
+	  }
+	       
+     } while( !feof(configFile) );
+
+     
+}
+
+
+
 //
 //
 void setup()
@@ -156,31 +218,84 @@ void setup()
      Sd2Card card;
      SdVolume volume;
 #endif
-
+     int i;
+     char in_char;
 
      // Serial output
      Serial.begin( 9600 );           // set up Serial library at 9600 bps
      Serial.println( "\n\n\n" );
+
+
+     //
+     // LED shall indicate SD card activity
+     pinMode( ledPin, OUTPUT );
+     digitalWrite( ledPin, HIGH );
+
+     //
+     // SD Fat initialization
+     Serial.print( "SdFat initialization ... " );
+
+#ifdef OSEPP_SD_SHIELD
+     pinMode( SD_CS_PIN, OUTPUT );       // output for the SD communication to work.
+     card.init();               //Initialize the SD card and configure the I/O pins.
+     volume.init(card);         //Initialize a volume on the SD card.
+     root.openRoot(volume);     //Open the root directory in the volume. 
+#else
+     if( !SD.begin( SD_CS_PIN ) )
+	  Serial.println( "failed.  Unable to initialize SD Card." );
+
+#endif
+
+     i = -1;
+     do {
+	  sprintf( g_str_buffer, "data_%d.txt", i++ );
+     } while( ! SD.exists(g_str_buffer) && (i<256) );
+     if( i >= 256 )
+	  Serial.println( "opening data file failed.  No file names available for data.txt." );
+     else
+	  Serial.println( "succeeded." );
+
+
+#ifdef OSEPP_SD_SHIELD
+     file.open( root, g_str_buffer, O_CREAT | O_WRITE ); // O_APPEND
+     configFile.open( root, "config", O_READ );
+
+     // read configuration file.
+     in_char = file.read();
+     while( in_char >= 0 ) {
+	  Serial.print(in_char);    //Print the current character
+	  in_char = file.read();      //Get the next character
+     }
+
+#else
+     file = SD.open( g_str_buffer, FILE_WRITE );
+     if( !file )
+	  Serial.println( "Unable to open data file on SD card." );
+
+     configFile = SD.open( "config", FILE_READ );
+     if( !configFile )
+	  Serial.println( "Unable to open config file.\n" );
+
+     read_config( configFile );
+
+#endif
+
+
+
      
      // ADC initialization
      // https://www.arduino.cc/en/Tutorial/DigitalPins
-     pinMode( A0, INPUT );
-     pinMode( A1, INPUT );
-     pinMode( A2, INPUT );
-     pinMode( A3, INPUT );
-     pinMode( A4, INPUT );
-     pinMode( A5, INPUT );
-     pinMode( A6, INPUT );
+     pinMode( map_pin, INPUT );
+     pinMode( dieselflow_in_pin, INPUT );
+     pinMode( dieselflow_out_pin, INPUT );
+     pinMode( psi_pin, INPUT );
+     pinMode( exhaustgastemp_pin, INPUT );
+     pinMode( tanktemp_pin, INPUT );
 
 
-     // 
-     // NG Solenoid switch to high for NG to flow -- when not using NG, set to LOW
-     // toggle solendoid switch to provide audible validation circuit is working
+     // must switch to high for NG to flow -- when not using NG, set to LOW
      pinMode( solenoidPin, OUTPUT );
-     digitalWrite( solenoidPin, HIGH );
-     delay( 250 );
      digitalWrite( solenoidPin, LOW );
-     
 
 
      //
@@ -202,29 +317,8 @@ void setup()
      adc_values[stepper_value] = stepsPerRevolution;
     
      Serial.println( "Setup configured motor to 120rpm, 300 steps stop to stop.  Solenoid off, and NG valve shut." );
-
-     //
-     // LED shall indicate SD card activity
-     pinMode( ledPin, OUTPUT );
-     digitalWrite( ledPin, HIGH );
-
-     //
-     // SD Fat initialization
-#ifdef OSEPP_SD_SHIELD
-     pinMode( SD_CS_PIN, OUTPUT );       // output for the SD communication to work.
-     card.init();               //Initialize the SD card and configure the I/O pins.
-     volume.init(card);         //Initialize a volume on the SD card.
-     root.openRoot(volume);     //Open the root directory in the volume. 
-     file.open( root, "DATA.TXT", O_CREAT | O_WRITE ); // O_APPEND 
-
-#else
-     Serial.print( "SdFat initialization ..." );
-     if( !SD.begin( SD_CS_PIN ) )
-	  Serial.println( " failed." );
-
-     file = SD.open( "DATA.TXT", FILE_WRITE );
-
-#endif
+        
+     // print header.
      sprintf( g_str_buffer, "\ntime:\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 	      adc_labels[0], adc_labels[1], adc_labels[2], adc_labels[3],
 	      adc_labels[4], adc_labels[5], adc_labels[6], adc_labels[7], adc_labels[8],
@@ -234,7 +328,9 @@ void setup()
      Serial.print( g_str_buffer );
 
      digitalWrite( ledPin, LOW );
-        
+
+
+
 }
 
 
@@ -360,28 +456,21 @@ void loop()
 
      // calculate flow based on IN - OUT
      adc_values[diesel_flow] = adc_values[dieselflow_in] - adc_values[dieselflow_out];
-
      
      // stepper value to output is based on a lookup table.
      adc_values[stepper_value] = calc_stepper_value( adc_values[psi], adc_values[map] );
 
-     adc_values[stepper_value] = trunc( adc_values[previous_stepper] -
-					( stepsPerRevolution - calc_stepper_value( xin, yin ) ) );
+     if( adc_values[stepper_value] < adc_values[stepper_value] )
+	  stepperDirection = POS_OPEN;
+     else if( adc_values[stepper_value] == adc_values[stepper_value] )
+	  stepperDirection = 0;
+     else
+	  stepperDirection = NEG_SHUT;
 
-
-     // if new position, then move stepper.
-     // and, set state of solenoid switch based on position of NG valve
-     if( adc_values[stepper_value] != 0 ) {
-          myStepper.step( adc_values[stepper_value] );
-	  adc_values[solenoid_position] = LOW;
-	  if( adc_values[stepper_value] != stepsPerRevolution )
-	       adc_values[solenoid_position] = HIGH;
-
-     }
-     adc_values[previous_stepper] = adc_values[stepper_value]; 
-
-     // set solenoid switch state.
-     digitalWrite( solenoidPin, adc_values[solenoid_position] );
+     if( stepperDirection != 0 )
+          myStepper.step( stepperDirection * adc_values[stepper_value] );
+     
+     adc_values[previous_stepper] = adc_values[stepper_value];
 
      write_data( adc_values );
 
