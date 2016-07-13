@@ -3,10 +3,10 @@
   Started: 2 July 2016
 */
 
-/* #include <Stepper.h> */
-/* #include <Time.h> */
-/* #include <Math.h> */
-/* #include <SPI.h> */
+#include <Stepper.h>
+#include <Time.h>
+#include <Math.h>
+#include <SPI.h>
 #include <SdFat.h>
 
 
@@ -47,17 +47,21 @@
 //
 // analog input pin/value pairs.
 //
-#define map_pin A0      // 5v
-#define dieselflow_in_pin A1   // 12v
-#define dieselflow_out_pin A2  // 12v
-#define ngflowmeter_pin A3     // 12v
-#define psi_pin A4    // 5v
-#define exhaustgastemp_pin A5  // 12v
-#define tanktemp_pin A6        // 12v
+#define map_pin A7
+#define dieselflow_in_pin A8
+#define dieselflow_out_pin A2
+#define ngflowmeter_pin A3
+#define psi_pin A4
+#define exhaustgastemp_pin A5
+#define tanktemp_pin A6
 
 #define ledPin 13
 #define solenoidPin 40
 
+
+//
+// following are indices into the various stepper motor arrays.
+// They were based on the pin arrangement above, but no longer.
 #define map 0
 #define dieselflow_in 1
 #define dieselflow_out 2
@@ -70,6 +74,7 @@
 #define previous_stepper 9
 #define stepper_value 10
 #define ANALOG_VALUES 11
+
 
 
 //
@@ -85,7 +90,7 @@ const int stepsPerRevolution = 300;  // Change this to fit the number of steps p
 
 // 
 // Initialize the stepper library on pins 12 and 13:
-//Stepper myStepper(stepsPerRevolution, dirA, dirB);            
+Stepper myStepper(stepsPerRevolution, dirA, dirB);            
  
 //
 // calculate stepper motor position based on MAP and tank pressure
@@ -113,20 +118,120 @@ const int stepsPerRevolution = 300;  // Change this to fit the number of steps p
 */
 
 
-#define PSI_STEPS 18
-#define MAP_STEPS 9
+const char *adc_labels[ANALOG_VALUES] = { "MAP", "IN", "OUT", "NG", "PSI", "EGT", "TT", "Flow", "Solenoid", "Previous", "Stepper" };
+// float adc_values[ANALOG_VALUES] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+float *adc_values;
+
+//int psi_array[] = { 30, 40, 50, 60, 70, 80, 100, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700 };
+int *psi_array;
+#define PSI_STEPS ( sizeof(psi_array) / sizeof(int) )
+
+//int map_array[] = { 110, 115, 120, 125, 130, 135, 140, 145, 150 };
+int *map_array;
+#define MAP_STEPS ( sizeof(map_array) / sizeof(int) )
+
+int **stepper_motor_values;
+
+/* int stepper_motor_values[PSI_STEPS][MAP_STEPS] = { */
+/*      { 132, 156, 180, 222, 234, 246, 0, 0, 0 }, */
+/*      { 132, 156, 180, 222, 234, 246, 0, 0, 0 }, */
+/*      { 132, 156, 180, 222, 234, 246, 180, 192, 210 }, */
+/*      { 135, 159, 184, 221, 236, 244, 267, 290, 313 }, */
+/*      { 138, 162, 186, 222, 234, 246, 264, 288, 312 }, */
+/*      { 132, 156, 181, 217, 232, 240, 264, 287, 309 }, */
+/*      { 133, 157, 182, 218, 233, 241, 264, 287, 309 }, */
+/*      { 119, 141, 164, 198, 211, 219, 240, 261, 282 }, */
+/*      { 76, 98, 120, 152, 165, 172, 192, 213, 233 }, */
+/*      { 67, 89, 112, 145, 159, 166, 187, 208, 229 }, */
+/*      { 80, 102, 125, 158, 171, 178, 199, 220, 241 }, */
+/*      { 86, 107, 129, 162, 175, 182, 202, 223, 243 }, */
+/*      { 89, 112, 135, 168, 182, 189, 211, 232, 253 }, */
+/*      { 84, 102, 126, 156, 168, 174, 198, 216, 234 }, */
+/*      { 72, 96, 114, 144, 156, 162, 180, 204, 222 }, */
+/*      { 60, 78, 102, 126, 138, 144, 162, 180, 198 }, */
+/*      { 42, 60, 78, 102, 114, 120, 138, 156, 174 }, */
+/*      { 18, 36, 54, 78, 84, 90, 108, 120, 138 } */
+/* }; */
 
 
 //
 // globals
-float *adc_values;
-int *psi_array,  *map_array;
-
-int stepper_motor_values[PSI_STEPS][MAP_STEPS];
-
+char g_str_buffer[125];
 char g_datafile[15];
 
 SdFat SD;
+
+
+
+
+
+//
+// read config file from SD card.
+// very limited formatting.
+int read_config( SdFile configFile )
+{
+     char buffer[256], *delim, *temp;
+     int mapi = 0, psii = 0;
+
+     Serial.println( "reading configuration file.");
+
+     
+     // read configuration file.
+     while( configFile.available() ) {
+
+	  configFile.fgets( buffer, sizeof(buffer) );
+	  Serial.print( buffer );
+
+	  if( buffer[0] == '{' ) {
+
+	       // read header line of array, which is map array.
+	       Serial.println( "Found {}.");
+	       configFile.fgets( buffer, sizeof(buffer) );
+	       Serial.print( buffer );
+	       
+	       temp = buffer;
+
+	       // first element is 0 place holder.
+	       delim = strtok( temp, ", " ); // place holder
+	       delim = strtok( NULL, ", " ); // first value.
+	       delim = strtok( NULL, ", " ); // first value.
+	       do {
+		    map_array[mapi++] = atoi( delim );
+	       	    delim = strtok( NULL, ", " );
+		    Serial.print( map_array[mapi-1] );
+		    Serial.print(", ");
+	       } while( delim );
+	       Serial.println( "\n.--------------.");
+
+
+	       // next is the stepper arrays.
+	       do {
+		    mapi = 0;
+
+		    configFile.fgets( buffer, sizeof(buffer) );
+		    Serial.print( buffer );
+		    temp = buffer;
+
+		    delim = strtok( temp, ", " ); // first value is PSI array element.
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    psi_array[psii] = atoi( delim );
+		    delim = strtok( NULL, ", " );  // first stepper element
+		    do {
+			 stepper_motor_values[psii][mapi++] = atoi( delim );
+			 Serial.print( stepper_motor_values[psii][mapi-1] );
+			 delim = strtok( NULL, ", " );
+		    } while( delim );
+		    Serial.println( ".==========." );
+		    
+	       } while( psii++ < PSI_STEPS );
+	       Serial.println( ".++++++++++." );
+
+
+	  }
+
+     }
+     
+}
 
 
 
@@ -134,14 +239,13 @@ SdFat SD;
 //
 void setup()
 {
-     char g_str_buffer[125];
-     const char *adc_labels[ANALOG_VALUES] = { "MAP", "IN", "OUT", "NG", "PSI", "EGT", "TT", "Flow", "Solenoid", "Previous", "Stepper" };
-
-     SdFile configFile, dataFile;
-     int i, j;
+     SdFile dataFile;
+     
+     int i;
 
 
      // Serial output
+     delay( 1000 );
      Serial.begin( 9600 );
      Serial.println( "\n\nSetup().\n" );
 
@@ -153,16 +257,14 @@ void setup()
      // SD Fat initialization
      if( !SD.begin( SD_CS_PIN ) )
 	  Serial.println( "Unable to initialize SD Card." );
-    
+
+     delay( 500 );
      // read configuration file if present.
      Serial.println( "Opening config file ...." );
-     configFile.open( "config", O_READ );
-     if( configFile.isOpen() ) {
-	  read_config( configFile );
-	  configFile.close();
-	  Serial.println( "Finished reading config file." );
-	  
-     } else
+     dataFile.open("config", O_READ);
+     if( dataFile.isOpen() )
+	  read_config( dataFile );
+     else
 	  Serial.println( "Unable to open config file." );
 
 
@@ -195,7 +297,7 @@ void setup()
      //
      // Motor Initialization
      // set the speed in rpm:
-//     myStepper.setSpeed( 60 );
+     myStepper.setSpeed( 60 );
 
      pinMode( enA, OUTPUT );
      digitalWrite( enA, HIGH );
@@ -203,7 +305,7 @@ void setup()
      digitalWrite( enB, HIGH );
 
      // initially close both the solenoid and NG valve.
-//     myStepper.step( stepsPerRevolution );   
+     myStepper.step( stepsPerRevolution );   
      adc_values[solenoid_position] = (float)LOW;   // because we store in the ADC array ... convenience.
      digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
 
@@ -231,89 +333,9 @@ void setup()
 
 
 //
-// read config file from SD card.
-// very limited formatting.
-int read_config( SdFile configFile )
-{
-     char buffer[256], *delim, *temp;
-     int mapi = 0, psii = 0, nRead = 0, i, j;
-
-     // allocate arrays.  We'll never de-allocate them ...
-     adc_values = (float*)malloc( sizeof(float) * ANALOG_VALUES );
-     psi_array = (int*)malloc( sizeof(int) * PSI_STEPS );
-     map_array = (int*)malloc( sizeof(int) * MAP_STEPS );
-
-     Serial.println( "\n\n");
-
-     
-     // read configuration file.
-     while( (nRead=configFile.fgets(buffer, sizeof(buffer))) > 0 ) {
-
-     	  if( buffer[0] == '{' ) {
-
-     	       // read header line of array, which is map array.
-     	       nRead = configFile.fgets( buffer, sizeof(buffer) );
-     	       temp = buffer;
-
-     	       // first element is 0 place holder.
-     	       delim = strtok( temp, "," );
-	       delim = strtok( NULL, "," );
-	       mapi = 0;
-     	       while( delim && (delim[0] != '\n') ) {
-     		    map_array[mapi++] = atoi( delim );
-     	       	    delim = strtok( NULL, ",}" );
-     		    Serial.print( map_array[mapi-1] );
-     		    Serial.print( ", " );
-     	       }
-	       Serial.print( "\n\n" );
-
-
-     	       // next is the stepper arrays.
-	       Serial.println( "Reading through stepper array." );
-
-     	       do {
-     		    mapi = 0;
-
-		    // { 30, 132, 156, 180, 222, 234, 246, 0, 0, 0 },
-		    nRead = configFile.fgets( buffer, sizeof(buffer) );
-		    temp = &buffer[1];
-		    Serial.print( buffer );
-
-		    delim = strtok( temp, ", " );
-     		    psi_array[psii] = atoi( delim );
-     		    Serial.print( psi_array[psii] );
-		    Serial.print( ": ");
-		    
-     		    do {
-			 delim = strtok( NULL, ", " );
-			 i = atoi( delim );
-     			 stepper_motor_values[psii][mapi++] = i;
-			 //Serial.print( stepper_motor_values[psii][mapi-1] );
-			 Serial.print( i );
-     			 Serial.print(", ");
-			 Serial.print( "[" );
-			 Serial.print( delim );
-			 Serial.print( "]");
-			 
-     		    } while( i && delim && (delim[0] != '\n') );
-     		    Serial.print("\n");
-
-     	       } while( psii++ < PSI_STEPS && delim );
-     	       Serial.println( "\n========" );
-
-     	  }
-
-     }
-     
-}
-
-
-
-//
 //
 /* void write_data( float adcvals[ANALOG_VALUES] ) */
 /* { */
-/*      char g_str_buffer[150]; */
 /*      SdFile dataFile; */
 /*      int i; */
 /*      char buff[15]; */
@@ -401,25 +423,24 @@ int read_config( SdFile configFile )
 
 
 
-/* void loop() */
-/* { */
-
+void loop()
+{
 /*      // */
 /*      // Arduino ADC has 1024 steps.  Volts = Ain * (MaxVolts / 1023) */
 /*      // read analog inputs (twice to stabilize ADC), convert to volts, apply calculation from spreadsheet. */
-/* //     analogRead( map_pin ); */
-/*      adc_values[map] = (39.958 * (analogRead(map_pin) * (5.0/1023)) ) + 8.142; */
-/* //     analogRead( dieselflow_in_pin ); */
+/*      analogRead( map_pin ); */
+/*      adc_values[map] = (39.958 * (analogRead(map_pin) * (12.0/1023)) ) + 8.142; */
+/*      analogRead( dieselflow_in_pin ); */
 /*      adc_values[dieselflow_in] = (1.3442 * (analogRead(dieselflow_in_pin) * (12.0/1023.0)) ) - 0.0168; */
-/* //     analogRead( dieselflow_out_pin ); */
+/*      analogRead( dieselflow_out_pin ); */
 /*      adc_values[dieselflow_out] = (0.5767 * (analogRead(dieselflow_out_pin) * (12.0/1023.0)) ) - .0102; */
-/* //     analogRead( ngflowmeter_pin ); */
-/*      adc_values[ngflowmeter] = ((40.276 * (analogRead(ngflowmeter_pin) * (5.0/1023.0)) ) - .2208) * .7175/60; */
-/* //     analogRead( psi_pin ); */
+/*      analogRead( ngflowmeter_pin ); */
+/*      adc_values[ngflowmeter] = ((40.276 * (analogRead(ngflowmeter_pin) * (12.0/1023.0)) ) - .2208) * .7175/60; */
+/*      analogRead( psi_pin ); */
 /*      adc_values[psi] = (268.68 * (analogRead(psi_pin) * (12.0/1023.0)) ) - 115.62; */
-/* //     analogRead( exhaustgastemp_pin ); */
+/*      analogRead( exhaustgastemp_pin ); */
 /*      adc_values[exhaustgastemp] = (249.21 * (analogRead(exhaustgastemp_pin) * (12.0/1023.0)) ) - 2.5189; */
-/* //     analogRead( tanktemp_pin ); */
+/*      analogRead( tanktemp_pin ); */
 /*      adc_values[tanktemp] = (197.9 * (analogRead(tanktemp_pin) * (12.0/1023.0)) ) - 251.2; */
 
 /*      // calculate flow based on IN - OUT */
@@ -436,8 +457,6 @@ int read_config( SdFile configFile )
 /*      write_data( adc_values ); */
 
 
-/*      delay( 250 ); */
+     delay( 1000 );
      
-/* } */
-
-void loop() { Serial.println( "here we are in loop"); }
+}
