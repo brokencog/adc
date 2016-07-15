@@ -117,9 +117,9 @@ int calc_stepper_value( float tankpsi, float enginemap )
 }
 
 
-void read_config()
+void read_config( char *configSrc)
 {
-     FILE *configFile = fopen( "config", "r" );
+     FILE *configFile = fopen( configSrc, "r" );
      char buffer[256], *delim, *temp;
      int mapi = 0, psii = 0;
 
@@ -181,18 +181,19 @@ void read_config()
 int main( int argc, char *argv[] )
 {
      float xin, yin;
-     int tablevalue, steps, previous;
-
-     read_config();
+     int tablevalue, steps, previous, i=1;
 
      if( argc < 4 ) {
 	  printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );
 	  printf( "usage: %s MAP PSI Prev_Stepper\n", argv[0] );
 	  exit( 0 );
+     } else if( argc > 4 ) {
+	  read_config( argv[1] );
+	  i = 2;	  
      }
      
-     xin = atof( argv[1] );
-     yin = atof( argv[2] );
+     xin = atof( argv[i++] );
+     yin = atof( argv[i] );
      previous = atol( argv[3] );
 
      tablevalue = calc_stepper_value( xin, yin );
