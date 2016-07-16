@@ -75,21 +75,24 @@
 
 #define SD_CS_PIN 53
 
+// delay between each iteration, in milliseconds.
+#define CONTROLER_PAUSE_TIME 1000
+
 
 
 //
 // analog input pin/value pairs.
 //
-#define map_pin A7
-#define dieselflow_in_pin A8
+#define map_pin A5
+#define dieselflow_in_pin A7
 #define dieselflow_out_pin A2
 #define ngflowmeter_pin A3
 #define psi_pin A4
-#define exhaustgastemp_pin A5
+#define exhaustgastemp_pin A8
 #define tanktemp_pin A6
 
 #define ledPin 13
-#define solenoidPin 40
+#define solenoidPin 31
 
 
 //
@@ -116,6 +119,8 @@
 #define enB  11  // Enable pin 2 on Motor Control Shield  
 #define dirA 12  // Direction pin dirA on Motor Control Shield
 #define dirB 13  // Direction pin dirB on Motor Control Shield
+
+
 
 
 // 
@@ -289,6 +294,7 @@ void setup()
 
 
 
+     //
      // ADC initialization
      // https://www.arduino.cc/en/Tutorial/DigitalPins
      pinMode( map_pin, INPUT );
@@ -299,13 +305,12 @@ void setup()
      pinMode( tanktemp_pin, INPUT );
 
 
-     // must switch to high for NG to flow -- when not using NG, set to LOW
+     // must switch to low for NG to flow -- when not using NG, set to HIGH
+     // this is for the MOSFET circuit.
      pinMode( solenoidPin, OUTPUT );
-     digitalWrite( solenoidPin, LOW );
-
+     digitalWrite( solenoidPin, HIGH );
 
      
-     //
      // Motor Initialization
      // set the speed in rpm:
      myStepper.setSpeed( 60 );
@@ -315,19 +320,20 @@ void setup()
      pinMode( enB, OUTPUT );
      digitalWrite( enB, HIGH );
 
+
      // initially close both the solenoid and NG valve.
      myStepper.step( stepsPerRevolution );   
-     adc_values[solenoid_position] = (float)LOW;   // because we store in the ADC array ... convenience.
+     adc_values[solenoid_position] = (float)HIGH;   // because we store in the ADC array ... convenience.
      digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
 
      adc_values[previous_stepper] = stepsPerRevolution;
      adc_values[stepper_value] = stepsPerRevolution;
-    
-     Serial.println( "Motor 120rpm, 300 steps stop to stop.  Solenoid off, NG valve shut." );
-     
-     // print header, and store in data file.
-     digitalWrite( ledPin, HIGH );
 
+    
+     //
+     // print header, and store in data file.
+     Serial.println( "Motor 120rpm, 300 steps stop to stop.  Solenoid off, NG valve shut." );
+     digitalWrite( ledPin, HIGH );
 
      dataFile.open( g_datafile, O_RDWR|O_AT_END|O_CREAT );
      if( ! dataFile.isOpen() )
@@ -430,10 +436,12 @@ int calc_stepper_value( float tankpsi, float enginemap )
      if( psi_index == -1 || map_index == -1 )
 	  return stepsPerRevolution;
      else {
-	  // x0 + i * ( (i-y0)/(x1-x0) )
-	  return map_array[map_index] + (
-	       enginemap * ( (enginemap - stepper_motor_values[psi_index][map_index + 1]) /
-			     (map_array[map_index] - stepper_motor_values[psi_index][map_index]) ) );
+	  return linear( enginemap,
+			 map_array[map_index],
+			 stepper_motor_values[psi_index][map_index],
+			 map_array[map_index+1],
+			 stepper_motor_values[psi_index][map_index+1] );
+	  
      }
 
 }
@@ -443,38 +451,52 @@ int calc_stepper_value( float tankpsi, float enginemap )
 
 void loop()
 {
+     int stepvalue;
+
+     
      //
      // Arduino ADC has 1024 steps.  Volts = Ain * (MaxVolts / 1023)
      // read analog inputs (twice to stabilize ADC), convert to volts, apply calculation from spreadsheet.
      analogRead( map_pin );
-     adc_values[map] = (39.958 * (analogRead(map_pin) * (12.0/1023)) ) + 8.142;
+     adc_values[map] = (39.958 * (analogRead(map_pin) * (5.0/1023)) ) + 8.142;
      analogRead( dieselflow_in_pin );
-     adc_values[dieselflow_in] = (1.3442 * (analogRead(dieselflow_in_pin) * (12.0/1023.0)) ) - 0.0168;
+     adc_values[dieselflow_in] = (1.3442 * (analogRead(dieselflow_in_pin) * (5.0/1023.0)) ) - 0.0168;
      analogRead( dieselflow_out_pin );
-     adc_values[dieselflow_out] = (0.5767 * (analogRead(dieselflow_out_pin) * (12.0/1023.0)) ) - .0102;
+     adc_values[dieselflow_out] = (0.5767 * (analogRead(dieselflow_out_pin) * (5.0/1023.0)) ) - .0102;
      analogRead( ngflowmeter_pin );
-     adc_values[ngflowmeter] = ((40.276 * (analogRead(ngflowmeter_pin) * (12.0/1023.0)) ) - .2208) * .7175/60;
+     adc_values[ngflowmeter] = ((40.276 * (analogRead(ngflowmeter_pin) * (5.0/1023.0)) ) - .2208) * .7175/60;
      analogRead( psi_pin );
-     adc_values[psi] = (268.68 * (analogRead(psi_pin) * (12.0/1023.0)) ) - 115.62;
+     adc_values[psi] = (268.68 * (analogRead(psi_pin) * (5.0/1023.0)) ) - 115.62;
      analogRead( exhaustgastemp_pin );
-     adc_values[exhaustgastemp] = (249.21 * (analogRead(exhaustgastemp_pin) * (12.0/1023.0)) ) - 2.5189;
+     adc_values[exhaustgastemp] = (249.21 * (analogRead(exhaustgastemp_pin) * (5.0/1023.0)) ) - 2.5189;
      analogRead( tanktemp_pin );
-     adc_values[tanktemp] = (197.9 * (analogRead(tanktemp_pin) * (12.0/1023.0)) ) - 251.2;
+     adc_values[tanktemp] = (197.9 * (analogRead(tanktemp_pin) * (5.0/1023.0)) ) - 251.2;
+
 
      // calculate flow based on IN - OUT
      adc_values[diesel_flow] = adc_values[dieselflow_in] - adc_values[dieselflow_out];
      
-     // stepper value to output is based on a lookup table.
-     adc_values[stepper_value] = calc_stepper_value( adc_values[psi], adc_values[map] );
 
-     myStepper.step( trunc( adc_values[previous_stepper] -
-			    ( stepsPerRevolution - adc_values[stepper_value] ) ) );
-     
+     // stepper value to output is based on a lookup table
+     adc_values[stepper_value] = calc_stepper_value( adc_values[psi], adc_values[map] );
+     stepvalue = -1 * ((int)adc_values[previous_stepper] - adc_values[stepper_value] );
+
+     // if the position for stepper motor is valid, open the solenoid
+     if( (adc_values[stepper_value] > 0) && (adc_values[stepper_value] < 300) ) {
+	  adc_values[solenoid_position] = HIGH;
+     } else
+	  adc_values[solenoid_position] = LOW;
+
+     // use values generated to move stepper and acuated solenoid.
+     myStepper.step( adc_values[stepper_value] );
+     digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
+
+     // save for next iteration's comparison.
      adc_values[previous_stepper] = adc_values[stepper_value];
 
+     // save data to SD and display.
      write_data( adc_values );
 
-
-     delay( 1000 );
+     delay( CONTROLER_PAUSE_TIME );
      
 }
