@@ -76,7 +76,7 @@
 #define SD_CS_PIN 53
 
 // delay between each iteration, in milliseconds.
-#define CONTROLER_PAUSE_TIME 1000
+#define CONTROLER_PAUSE_TIME 0
 
 
 
@@ -126,7 +126,7 @@
 // 
 // Initialize the stepper library on pins 12 and 13:
 const int stepsPerRevolution = 300;  // Change this to fit the number of steps per revolution for your motor
-Stepper myStepper( stepsPerRevolution, dirA, dirB );            
+Stepper myStepper( stepsPerRevolution, dirA, dirB );
  
 
 //
@@ -253,7 +253,7 @@ void setup()
 
 
      // Serial output
-     delay( 1000 );
+     delay( 250 );
      Serial.begin( 9600 );
      Serial.println( "\n\nSetup().\n" );
 
@@ -268,8 +268,6 @@ void setup()
 	  Serial.println( "Unable to initialize SD Card." );
 
      else{
-	  delay( 500 );
-
 	  // read configuration file if present.
 	  Serial.print( "Opening config file ...." );
 	  dataFile.open("config", O_READ );
@@ -322,7 +320,9 @@ void setup()
 
 
      // initially close both the solenoid and NG valve.
-     myStepper.step( stepsPerRevolution );   
+     for( int i=0; i<stepsPerRevolution; i++ )
+	  myStepper.step( -10 );
+     
      adc_values[solenoid_position] = (float)HIGH;   // because we store in the ADC array ... convenience.
      digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
 
@@ -332,12 +332,13 @@ void setup()
     
      //
      // print header, and store in data file.
-     Serial.println( "Motor 120rpm, 300 steps stop to stop.  Solenoid off, NG valve shut." );
-     digitalWrite( ledPin, HIGH );
 
+     digitalWrite( ledPin, HIGH );
      dataFile.open( g_datafile, O_RDWR|O_AT_END|O_CREAT );
      if( ! dataFile.isOpen() )
 	  Serial.println( "unable to open data file in Setup.");
+
+     Serial.println( "Motor 120rpm, 300 steps stop to stop.  Solenoid off, NG valve shut.\n" );
 
      Serial.print( "\nTime:\t" );
      dataFile.print( "\r\nTime:\t" );
@@ -401,7 +402,7 @@ int bsearch_array( int key, const int array[], int length )
 	  return -1;
 
      while( first <= last ) {
-	  if( key > array[mid] )
+	  if( key >= array[mid] )
 	       first = mid + 1;
 	  else if( (key >= array[mid]) && (key < array[mid+1]) )
 	       return mid;
@@ -418,29 +419,35 @@ int bsearch_array( int key, const int array[], int length )
 
 float linear( float i, float x0, float  y0, float x1, float y1 )
 {
-     float ratio = (i - y0) / (x1 - x0);
+     float slope = (x1-x0) / (y1-y0);
+     float new_step =  ((x1 - x0) * (i - x1)) + x1;
+
+     new_step = y0 + (slope*(i-x0));
      
-     return x0 + i*ratio ;
+     return new_step;
 
 }
 
 
-int calc_stepper_value( float tankpsi, float enginemap )
+float calc_interpolation( float tankpsi, float enginemap )
 {
-     int map_index, psi_index, stepvalue;
+     int map_index, psi_index;
      float x, y, delta;
 
      psi_index = bsearch_array( round(tankpsi), psi_array, PSI_STEPS );
      map_index = bsearch_array( round(enginemap), map_array, MAP_STEPS );
 
-     if( psi_index == -1 || map_index == -1 )
+     if( psi_index == -1 || map_index == -1 ||
+	  stepper_motor_values[psi_index][map_index] == 0 ||
+	  stepper_motor_values[psi_index][map_index+1] == 0 )
 	  return stepsPerRevolution;
+
      else {
 	  return linear( enginemap,
-			 map_array[map_index],
 			 stepper_motor_values[psi_index][map_index],
-			 map_array[map_index+1],
-			 stepper_motor_values[psi_index][map_index+1] );
+			 map_array[map_index],
+			 stepper_motor_values[psi_index][map_index+1],
+			 map_array[map_index+1] );
 	  
      }
 
@@ -448,12 +455,11 @@ int calc_stepper_value( float tankpsi, float enginemap )
 
 
 
-
 void loop()
 {
-     int stepvalue;
+     float stepvalue;
 
-     
+
      //
      // Arduino ADC has 1024 steps.  Volts = Ain * (MaxVolts / 1023)
      // read analog inputs (twice to stabilize ADC), convert to volts, apply calculation from spreadsheet.
@@ -476,19 +482,18 @@ void loop()
      // calculate flow based on IN - OUT
      adc_values[diesel_flow] = adc_values[dieselflow_in] - adc_values[dieselflow_out];
      
+     // determine stepper motor position to move to
+     // open is negative, hence the inversion
+     stepvalue = calc_interpolation( adc_values[psi], adc_values[map] );
+     adc_values[stepper_value] = -1.0 * ( adc_values[previous_stepper] - stepvalue );
 
-     // stepper value to output is based on a lookup table
-     adc_values[stepper_value] = calc_stepper_value( adc_values[psi], adc_values[map] );
-     stepvalue = -1 * ((int)adc_values[previous_stepper] - adc_values[stepper_value] );
+     myStepper.step( (int)adc_values[stepper_value] );
 
      // if the position for stepper motor is valid, open the solenoid
      if( (adc_values[stepper_value] > 0) && (adc_values[stepper_value] < 300) ) {
 	  adc_values[solenoid_position] = HIGH;
      } else
 	  adc_values[solenoid_position] = LOW;
-
-     // use values generated to move stepper and acuated solenoid.
-     myStepper.step( adc_values[stepper_value] );
      digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
 
      // save for next iteration's comparison.

@@ -12,8 +12,26 @@ int psi_array[] = { 30, 40, 50, 60, 70, 80, 100, 200, 250, 300, 350, 400, 450, 5
 int map_array[] = { 110, 115, 120, 125, 130, 135, 140, 145, 150 };
 #define MAP_STEPS ( sizeof(map_array) / sizeof(int) )
 
-int stepper_motor_values[PSI_STEPS][MAP_STEPS];
-
+int stepper_motor_values[PSI_STEPS][MAP_STEPS] = {
+     { 132, 156, 180, 222, 234, 246, 0, 0, 0 },
+     { 132, 156, 180, 222, 234, 246, 0, 0, 0 },
+     { 132, 156, 180, 222, 234, 246, 180, 192, 210 },
+     { 135, 159, 184, 221, 236, 244, 267, 290, 313 },
+     { 138, 162, 186, 222, 234, 246, 264, 288, 312 },
+     { 132, 156, 181, 217, 232, 240, 264, 287, 309 },
+     { 133, 157, 182, 218, 233, 241, 264, 287, 309 },
+     { 119, 141, 164, 198, 211, 219, 240, 261, 282 },
+     { 76, 98, 120, 152, 165, 172, 192, 213, 233 },
+     { 67, 89, 112, 145, 159, 166, 187, 208, 229 },
+     { 80, 102, 125, 158, 171, 178, 199, 220, 241 },
+     { 86, 107, 129, 162, 175, 182, 202, 223, 243 },
+     { 89, 112, 135, 168, 182, 189, 211, 232, 253 },
+     { 84, 102, 126, 156, 168, 174, 198, 216, 234 },
+     { 72, 96, 114, 144, 156, 162, 180, 204, 222 },
+     { 60, 78, 102, 126, 138, 144, 162, 180, 198 },
+     { 42, 60, 78, 102, 114, 120, 138, 156, 174 },
+     { 18, 36, 54, 78, 84, 90, 108, 120, 138 }
+};
 
 
 
@@ -58,7 +76,7 @@ int bsearch_array( int key, const int array[], int length )
 	  return -1;
 
      while( first <= last ) {
-	  if( key > array[mid] )
+	  if( key >= array[mid] )
 	       first = mid + 1;
 	  else if( (key >= array[mid]) && (key < array[mid+1]) )
 	       return mid;
@@ -73,40 +91,7 @@ int bsearch_array( int key, const int array[], int length )
 
 }
 
-float linear( float i, float x0, float  y0, float x1, float y1 )
-{
-     float ratio;
-     
-     // x0 + i * ( (i-y0)/(x1-x0) )
-     return x0 + ( i * ((i - y0)/(x1-y0)) );
-}
 
-
-int calc_stepper_value( float tankpsi, float enginemap )
-{
-     int map_index, psi_index, stepvalue;
-     float x, y, delta;
-
-     psi_index = bsearch_array( round(tankpsi), psi_array, PSI_STEPS );
-     map_index = bsearch_array( round(enginemap), map_array, MAP_STEPS );
-
-     printf( "Found map: %d, and map+1: %d.\n", map_array[map_index], map_array[map_index+1] );
-     printf( "Stepper value: %d, +1: %d.\n", stepper_motor_values[psi_index][map_index], stepper_motor_values[psi_index][map_index+1] );
-     
-
-     if( psi_index == -1 || map_index == -1 )
-	  return stepsPerRevolution;
-
-     else {
-	  return linear( enginemap,
-			 stepper_motor_values[psi_index][map_index],
-			 map_array[map_index],
-			 stepper_motor_values[psi_index][map_index+1],
-			 map_array[map_index+1] );
-	  
-     }
-
-}
 
 
 void read_config( char *configSrc)
@@ -115,11 +100,12 @@ void read_config( char *configSrc)
      char buffer[256], *delim, *temp;
      int mapi = 0, psii = 0;
 
+     printf( "Reading from config file: %s.\n", configSrc );
+
      // read configuration file.
      while( !feof(configFile) ) {
 
 	  fgets( buffer, sizeof(buffer), configFile );
-//	  printf( "%s", buffer );
 
 	  if( buffer[0] == '{' ) {
 
@@ -127,6 +113,11 @@ void read_config( char *configSrc)
 	       fgets( buffer, sizeof(buffer), configFile );
 	       
 	       temp = buffer; // is this needed for strtok()??
+
+	       printf( "%5s", "" );
+	       for( mapi=0; mapi < MAP_STEPS; mapi++ )
+		    printf( "%5d", mapi );
+	       printf( "\n" );
 
 	       // first element is 0 place holder.
 	       delim = strtok( temp, ", " ); // place holder
@@ -152,7 +143,7 @@ void read_config( char *configSrc)
 		    delim = strtok( temp, ", " ); // first value is PSI array element.
 		    delim = strtok( NULL, ", " );
 		    psi_array[psii] = atoi( delim );
-		    printf( "%3d", psi_array[psii] );
+		    printf( "%2d|%3d", psii, psi_array[psii] );
 		    printf( ":\t");
 		    delim = strtok( NULL, ", " );
 		    do {
@@ -172,29 +163,91 @@ void read_config( char *configSrc)
      
 }
 
+// map/step == x/y
+float linear( float i, float x0, float  y0, float x1, float y1 )
+{
+     float slope = (x1-x0) / (y1-y0);
+     float new_step =  ((x1 - x0) * (i - x1)) + x1;
+
+     new_step = y0 + (slope*(i-x0));
+     
+     printf( "slope: %f, (x0,y0)=(%.2f,%.2f), (%.2f,y) == %.2f.\n", slope, x0, y0, i, new_step );
+     return new_step;
+
+}
+
+
+int calc_interpolation( float tankpsi, float enginemap )
+{
+     int map_index, psi_index, stepvalue;
+     float x, y, delta;
+
+     psi_index = bsearch_array( round(tankpsi), psi_array, PSI_STEPS );
+     map_index = bsearch_array( round(enginemap), map_array, MAP_STEPS );
+
+     printf( "PSI index: %d, MAP index: %d. Table value: %d\n", psi_index, map_index,
+     	     stepper_motor_values[psi_index][map_index] );
+
+     if( psi_index == -1 || map_index == -1 ||
+	  stepper_motor_values[psi_index][map_index] == 0 ||
+	  stepper_motor_values[psi_index][map_index+1] == 0 )
+	  return stepsPerRevolution;
+
+     else {
+	  return linear( enginemap,
+			 map_array[map_index],
+			 stepper_motor_values[psi_index][map_index],
+			 map_array[map_index+1],
+			 stepper_motor_values[psi_index][map_index+1] );
+	  
+     }
+
+}
 
 
 int main( int argc, char *argv[] )
 {
-     float xin, yin;
+     float mapin, psiin;
      int tablevalue, steps, previous, i=1;
+     char buffer[10];
 
-     if( argc < 4 ) {
+     if( (argc == 1) || (argc > 6) ) {
 	  printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );
-	  printf( "usage: %s MAP PSI Prev_Stepper\n", argv[0] );
+	  printf( "usage: %s [-c <config file>] MAP PSI Prev_Stepper\n", argv[0] );
 	  exit( 0 );
-     } else if( argc > 4 ) {
-	  read_config( argv[1] );
-	  i = 2;	  
-     }
-     
-     xin = atof( argv[i++] );
-     yin = atof( argv[i++] );
+
+     } else if( (argc > 2) && (argv[1][0] == '-') && (argv[1][1] == 'c') ) {
+	  read_config( argv[2] );
+	  i = 3;
+	  if( argc < 6 )
+	       exit(0);
+
+     } else
+	  i = 1;
+
+	  
+     psiin = atof( argv[i++] );
+     mapin = atof( argv[i++] );
      previous = atol( argv[i++] );
 
-     tablevalue = calc_stepper_value( xin, yin );
-     printf( "Table value: %d. Previous: %d,  myStepper.step(%d).\n", tablevalue, previous, -1*(previous - tablevalue) );
+     do {
 
-     return steps;
+	  tablevalue = calc_interpolation( psiin, mapin );
+	  steps = -1 * ( previous - tablevalue );
+	  
+	  printf( "Previous value: %d. Table value: %d.  Steps to move: %d.\n",
+		  previous, tablevalue, steps );
 
+	  previous = tablevalue;
+	  printf( "Enter PSI: " );
+	  fgets( buffer, 10, stdin );  
+	  psiin = atof( buffer );
+	  printf( "Enter MAP: " );
+	  fgets( buffer, 10, stdin );  
+	  mapin = atof( buffer );
+	  
+     } while( mapin && psiin );
+
+     return previous;
+     
 }
