@@ -163,21 +163,47 @@ void read_config( char *configSrc)
      
 }
 
+
+float bi_linear(float q11, float q12, float q21, float q22,
+		       float x1, float y1, float x2, float y2,
+		       float x, float y) 
+{
+     float x2x1, y2y1, x2x, y2y, yy1, xx1;
+
+     x2x1 = x2 - x1;
+     y2y1 = y2 - y1;
+     x2x = x2 - x;
+     y2y = y2 - y;
+     yy1 = y - y1;
+     xx1 = x - x1;
+
+     return 1.0 / (x2x1 * y2y1) * (
+	  q11 * x2x * y2y +
+	  q21 * xx1 * y2y +
+	  q12 * x2x * yy1 +
+	  q22 * xx1 * yy1 );
+
+}
+
+
+
+
+
 // map/step == x/y
 float linear( float i, float x0, float  y0, float x1, float y1 )
 {
      float slope = (x1-x0) / (y1-y0);
      float new_step =  ((x1 - x0) * (i - x1)) + x1;
 
-     new_step = y0 + (slope*(i-x0));
+     new_step = y0 + ( slope * (i-x0) );
      
-     printf( "slope: %f, (x0,y0)=(%.2f,%.2f), (%.2f,y) == %.2f.\n", slope, x0, y0, i, new_step );
+     // printf( "slope: %f, (x0,y0)=(%.2f,%.2f), (%.2f,y) == %.2f.\n", slope, x0, y0, i, new_step );
      return new_step;
 
 }
 
 
-int calc_interpolation( float tankpsi, float enginemap )
+float calc_interpolation( float tankpsi, float enginemap )
 {
      int map_index, psi_index, stepvalue;
      float x, y, delta;
@@ -194,11 +220,24 @@ int calc_interpolation( float tankpsi, float enginemap )
 	  return stepsPerRevolution;
 
      else {
-	  return linear( enginemap,
-			 map_array[map_index],
-			 stepper_motor_values[psi_index][map_index],
-			 map_array[map_index+1],
-			 stepper_motor_values[psi_index][map_index+1] );
+	  return bi_linear( 
+	       stepper_motor_values[psi_index][map_index],  // q11
+	       stepper_motor_values[psi_index][map_index+1],
+	       stepper_motor_values[psi_index+1][map_index],
+	       stepper_motor_values[psi_index+1][map_index+1],
+
+	       psi_array[psi_index],  // x1
+	       map_array[map_index],  // y1,
+	       psi_array[psi_index+1],
+	       map_array[map_index+1],
+
+	       tankpsi, enginemap ); // x, y
+
+	  /* return linear( enginemap, */
+	  /* 		 map_array[map_index], */
+	  /* 		 stepper_motor_values[psi_index][map_index], */
+	  /* 		 map_array[map_index+1], */
+	  /* 		 stepper_motor_values[psi_index][map_index+1] ); */
 	  
      }
 
@@ -207,13 +246,13 @@ int calc_interpolation( float tankpsi, float enginemap )
 
 int main( int argc, char *argv[] )
 {
-     float mapin, psiin;
-     int tablevalue, steps, previous, i=1;
+     float mapin, psiin, interpolatedvalue;
+     int steps, previous, i=1;
      char buffer[10];
 
      if( (argc == 1) || (argc > 6) ) {
 	  printtable( psi_array, map_array, stepper_motor_values, PSI_STEPS, MAP_STEPS );
-	  printf( "usage: %s [-c <config file>] MAP PSI Prev_Stepper\n", argv[0] );
+	  printf( "usage: %s [-c <config file>] PSI MAP Prev_Stepper\n", argv[0] );
 	  exit( 0 );
 
      } else if( (argc > 2) && (argv[1][0] == '-') && (argv[1][1] == 'c') ) {
@@ -232,13 +271,14 @@ int main( int argc, char *argv[] )
 
      do {
 
-	  tablevalue = calc_interpolation( psiin, mapin );
-	  steps = -1 * ( previous - tablevalue );
+	  interpolatedvalue = calc_interpolation( psiin, mapin );
+	  steps = -1 * ( previous - interpolatedvalue );
 	  
-	  printf( "Previous value: %d. Table value: %d.  Steps to move: %d.\n",
-		  previous, tablevalue, steps );
+	  printf( "Previous Stepper: %d.  Interpolated result: %.2f.  Steps to move: %d.\n",
+		  previous, interpolatedvalue, steps );
 
-	  previous = tablevalue;
+	  previous = interpolatedvalue;
+
 	  printf( "Enter PSI: " );
 	  fgets( buffer, 10, stdin );  
 	  psiin = atof( buffer );

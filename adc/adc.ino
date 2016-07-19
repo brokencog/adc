@@ -253,10 +253,10 @@ void setup()
 
 
      // Serial output
-     delay( 250 );
      Serial.begin( 9600 );
-     Serial.println( "\n\nSetup().\n" );
-
+     sprintf( g_str_buffer, "\n\nADC Setup().  Compiled at: %s %s.\nSD CS pin: %d.\n", __DATE__, __TIME__, SD_CS_PIN );
+     Serial.println( g_str_buffer );
+  
 
      //
      // LED shall indicate SD card activity
@@ -289,7 +289,6 @@ void setup()
      if( i >= 256 ) {
 	  Serial.print( "Unable to open data file." );
      }
-
 
 
      //
@@ -392,6 +391,8 @@ void write_data( float adcvals[ANALOG_VALUES] )
 }
 
 
+
+
 int bsearch_array( int key, const int array[], int length )
 {
      int first = 0,
@@ -417,13 +418,41 @@ int bsearch_array( int key, const int array[], int length )
 
 }
 
+
+float bi_linear(float q11, float q12, float q21, float q22,
+		       float x1, float y1, float x2, float y2,
+		       float x, float y) 
+{
+     float x2x1, y2y1, x2x, y2y, yy1, xx1;
+
+     x2x1 = x2 - x1;
+     y2y1 = y2 - y1;
+     x2x = x2 - x;
+     y2y = y2 - y;
+     yy1 = y - y1;
+     xx1 = x - x1;
+
+     return 1.0 / (x2x1 * y2y1) * (
+	  q11 * x2x * y2y +
+	  q21 * xx1 * y2y +
+	  q12 * x2x * yy1 +
+	  q22 * xx1 * yy1 );
+
+}
+
+
+
+
+
+// map/step == x/y
 float linear( float i, float x0, float  y0, float x1, float y1 )
 {
      float slope = (x1-x0) / (y1-y0);
      float new_step =  ((x1 - x0) * (i - x1)) + x1;
 
-     new_step = y0 + (slope*(i-x0));
+     new_step = y0 + ( slope * (i-x0) );
      
+     // printf( "slope: %f, (x0,y0)=(%.2f,%.2f), (%.2f,y) == %.2f.\n", slope, x0, y0, i, new_step );
      return new_step;
 
 }
@@ -431,11 +460,14 @@ float linear( float i, float x0, float  y0, float x1, float y1 )
 
 float calc_interpolation( float tankpsi, float enginemap )
 {
-     int map_index, psi_index;
+     int map_index, psi_index, stepvalue;
      float x, y, delta;
 
      psi_index = bsearch_array( round(tankpsi), psi_array, PSI_STEPS );
      map_index = bsearch_array( round(enginemap), map_array, MAP_STEPS );
+
+     printf( "PSI index: %d, MAP index: %d. Table value: %d\n", psi_index, map_index,
+     	     stepper_motor_values[psi_index][map_index] );
 
      if( psi_index == -1 || map_index == -1 ||
 	  stepper_motor_values[psi_index][map_index] == 0 ||
@@ -443,22 +475,32 @@ float calc_interpolation( float tankpsi, float enginemap )
 	  return stepsPerRevolution;
 
      else {
-	  return linear( enginemap,
-			 stepper_motor_values[psi_index][map_index],
-			 map_array[map_index],
-			 stepper_motor_values[psi_index][map_index+1],
-			 map_array[map_index+1] );
+	  return bi_linear( 
+	       stepper_motor_values[psi_index][map_index],  // q11
+	       stepper_motor_values[psi_index][map_index+1],
+	       stepper_motor_values[psi_index+1][map_index],
+	       stepper_motor_values[psi_index+1][map_index+1],
+
+	       psi_array[psi_index],  // x1
+	       map_array[map_index],  // y1,
+	       psi_array[psi_index+1],
+	       map_array[map_index+1],
+
+	       tankpsi, enginemap ); // x, y
+
+	  /* return linear( enginemap, */
+	  /* 		 map_array[map_index], */
+	  /* 		 stepper_motor_values[psi_index][map_index], */
+	  /* 		 map_array[map_index+1], */
+	  /* 		 stepper_motor_values[psi_index][map_index+1] ); */
 	  
      }
 
 }
 
 
-
 void loop()
 {
-     float stepvalue;
-
 
      //
      // Arduino ADC has 1024 steps.  Volts = Ain * (MaxVolts / 1023)
@@ -484,16 +526,15 @@ void loop()
      
      // determine stepper motor position to move to
      // open is negative, hence the inversion
-     stepvalue = calc_interpolation( adc_values[psi], adc_values[map] );
-     adc_values[stepper_value] = -1.0 * ( adc_values[previous_stepper] - stepvalue );
+     adc_values[stepper_value] = -1.0 * ( adc_values[previous_stepper] - calc_interpolation( adc_values[psi], adc_values[map] ) );
 
      myStepper.step( (int)adc_values[stepper_value] );
 
      // if the position for stepper motor is valid, open the solenoid
      if( (adc_values[stepper_value] > 0) && (adc_values[stepper_value] < 300) ) {
-	  adc_values[solenoid_position] = HIGH;
-     } else
 	  adc_values[solenoid_position] = LOW;
+     } else
+	  adc_values[solenoid_position] = HIGH;
      digitalWrite( solenoidPin, (int)adc_values[solenoid_position] );
 
      // save for next iteration's comparison.
